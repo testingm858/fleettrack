@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+.expo/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+apps/backend/prisma/dev.db
+apps/backend/prisma/dev.db-journal

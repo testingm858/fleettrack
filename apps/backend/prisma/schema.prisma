@@ -1,0 +1,148 @@
+// FleetTrack backend schema.
+// Local dev uses SQLite for zero-install setup; swap `provider`/`url` to
+// postgresql (+ PostGIS via raw SQL) for production without changing app code,
+// since all geo queries go through the repository layer, not raw Prisma calls.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String   @id @default(cuid())
+  name                 String
+  email                String   @unique
+  passwordHash         String
+  role                 String // admin | fleet_manager | driver | viewer
+  driverId             String?  @unique
+  driver               Driver?  @relation(fields: [driverId], references: [id])
+  notificationPrefsJson String  @default("{}")
+  unitPrefsJson        String   @default("{}")
+  pushToken            String?
+  createdAt            DateTime @default(now())
+}
+
+model Driver {
+  id                String    @id @default(cuid())
+  name              String
+  phone             String
+  licenseNumber     String    @unique
+  assignedVehicleId String?   @unique
+  assignedVehicle   Vehicle?  @relation(fields: [assignedVehicleId], references: [id])
+  user              User?
+}
+
+model Vehicle {
+  id           String            @id @default(cuid())
+  name         String
+  plateNumber  String            @unique
+  type         String // car | bike | truck
+  imei         String            @unique
+  groupId      String?
+  iconType     String            @default("car")
+  createdAt    DateTime          @default(now())
+  driver       Driver?
+  pings        TelemetryPing[]
+  status       VehicleStatus?
+  alerts       Alert[]
+  thresholds   AlertThreshold?
+}
+
+model TelemetryPing {
+  id             String   @id @default(cuid())
+  vehicleId      String
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id])
+  timestamp      DateTime @default(now())
+  lat            Float
+  lng            Float
+  speed          Float
+  heading        Float
+  ignition       Boolean
+  immobilizer    Boolean
+  charging       Boolean
+  batteryPct     Float
+  satelliteCount Int
+  rssiPct        Int
+  odometerKm     Float
+  address        String?
+
+  @@index([vehicleId, timestamp])
+}
+
+model VehicleStatus {
+  vehicleId         String   @id
+  vehicle           Vehicle  @relation(fields: [vehicleId], references: [id])
+  currentStatus     String // running | stopped | idle | offline
+  lastPing          DateTime?
+  lastLat           Float?
+  lastLng           Float?
+  // Set when speed drops to 0 while ignition stays on; cleared once moving
+  // again. Idle is only declared once this has been true for longer than
+  // the vehicle's idleThresholdSeconds, so a brief traffic-light stop still
+  // reads as "running".
+  movementStoppedAt DateTime?
+  speed             Float    @default(0)
+  heading            Float    @default(0)
+  ignition          Boolean  @default(false)
+  immobilizer       Boolean  @default(false)
+  charging          Boolean  @default(false)
+  batteryPct        Float    @default(0)
+  satelliteCount    Int      @default(0)
+  rssiPct           Int      @default(0)
+  odometerKm        Float    @default(0)
+  address           String?
+  updatedAt         DateTime @updatedAt
+}
+
+model Alert {
+  id           String   @id @default(cuid())
+  vehicleId    String
+  vehicle      Vehicle  @relation(fields: [vehicleId], references: [id])
+  type         String
+  timestamp    DateTime @default(now())
+  lat          Float
+  lng          Float
+  address      String?
+  acknowledged Boolean  @default(false)
+
+  @@index([vehicleId, timestamp])
+  @@index([type, timestamp])
+}
+
+model Geofence {
+  id                 String  @id @default(cuid())
+  name               String
+  shape              String // circle | polygon
+  coordinatesJson     String // JSON-encoded LatLng[]
+  radiusMeters       Float?
+  alertOnEntry       Boolean @default(true)
+  alertOnExit        Boolean @default(true)
+  assignedVehicleIdsJson String @default("[]")
+}
+
+model AlertThreshold {
+  vehicleId             String  @id
+  vehicle               Vehicle @relation(fields: [vehicleId], references: [id])
+  speedLimitKmh         Float   @default(120)
+  idleThresholdSeconds  Int     @default(300)
+  lowBatteryPct         Float   @default(20)
+  offlineTimeoutSeconds Int     @default(1800)
+}
+
+// Safety-critical remote commands (currently just the immobilizer/engine-cutoff
+// toggle) are logged here regardless of outcome, per the requirement that this
+// feature sits behind explicit confirmation *and* an audit trail.
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  vehicleId String
+  action    String
+  detail    String?
+  timestamp DateTime @default(now())
+
+  @@index([vehicleId, timestamp])
+}
