@@ -2,6 +2,7 @@ node_modules/
 dist/
 build/
 .expo/
+.vercel/
 .env
 .env.*
 !.env.example
